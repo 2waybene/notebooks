@@ -117,62 +117,59 @@ df.pivot_table(values='Survived',
 
 # In[16]:
 
-df['Pclass1']=df.Pclass == 1
-df['Pclass2']=df.Pclass == 2
-
-
-# In[17]:
-
 df.pivot_table(values='Survived',
                index=['Embarked'],
                aggfunc=np.mean).plot(kind='bar')
 
 
-# In[18]:
+# ## Feature Construction
+
+# In[17]:
 
 df['FamilySize'] = df['SibSp'] + df['Parch']
 
 
-# In[19]:
+# In[18]:
 
 df.pivot_table(values='Survived',
                index=['FamilySize'],
                aggfunc=np.mean).plot(kind='bar')
 
 
-# In[20]:
+# In[19]:
 
 df.head()
 
 
-# In[21]:
+# In[20]:
 
 adult_age = 16
 df['Person'] = df[['Age','Sex']].apply(lambda x: 'child' if x[0]<adult_age else x[1], axis=1)
-# first convert to str, then map
 df.Person = df.Person.astype(str).map({'male':1,'female':0,'child':2})
 
 
-# In[22]:
+# In[21]:
 
 df.pivot_table(values='Survived',
                index=['Person'],
                aggfunc=np.mean).plot(kind='bar')
 
 
-# In[23]:
+# In[22]:
 
 df.Person.value_counts()
 
 
-# In[24]:
+# In[23]:
 
 # according to the women and child first policy,
-# if the wife died, it is likely the whole family died
-# and if the husband died, it is likely the whole family survived
+# if a wife who has children died, it is likely the whole family died
+# and if a husband who has children survived, it is likely the whole family survived
+# therefore, we use surname to check if the person is with perished_mother_wife or survive_father_husband
+# to find out if he/she is survived.
 
-# theoretically a great tree based algorithm should discover this on its own, but
-# new features like these are provided to ML as cue to narrow its search
+# it would ideal that ML would discover this on its own, but at present it seems not.
+# New features like this are useful to narrow its search
 
 df['surname'] = df['Name'].apply(lambda name: name.split(',')[0].lower())
 
@@ -180,57 +177,56 @@ perishing_female_surnames = df[(df.Person==0) & (df.Survived ==0) & (df.FamilySi
 print('Total female adult victims with family:', len(perishing_female_surnames))
 
 
-# In[25]:
+# In[24]:
 
 df['perish_mother_wife'] = df['surname'].apply(lambda x: 1 if x in perishing_female_surnames else 0)
 
 
-# In[26]:
+# In[25]:
 
 survive_male_surnames = df[(df.Person==1) & (df.Survived ==1) & (df.FamilySize > 0)]['surname'].unique()
 
 
-# In[27]:
+# In[26]:
 
 df['survive_father_husband'] = df['surname'].apply(lambda x: 1 if x in survive_male_surnames else 0)
 
 
-# In[28]:
+# In[27]:
 
 # finish up and predict
 
 df.drop(['SibSp','Parch','Name','surname','Sex','Age'],axis=1, inplace=True)
 
 
-# In[29]:
+# In[28]:
 
 predictor_var = list(df.columns[1:])
 print predictor_var
 outcome_var = 'Survived'
 
 
-# In[30]:
+# In[29]:
 
-#categorical = ['Pclass', 'Person','Embarked','perish_mother_wife','survive_father_husband']
-categorical = ['Pclass1', 'Pclass2', 'Person','Embarked','perish_mother_wife','survive_father_husband']
+categorical = ['Pclass','Person','Embarked','perish_mother_wife','survive_father_husband']
 non_categorical = [ i for i in predictor_var if i not in categorical ]
 
 
-# In[31]:
+# In[30]:
 
 from sklearn.preprocessing import OneHotEncoder
 ohe = OneHotEncoder(handle_unknown='ignore', sparse=False)
 X_cat = ohe.fit_transform(df[categorical])
 
 
-# In[32]:
+# In[31]:
 
 from sklearn.preprocessing import StandardScaler
 sc = StandardScaler()
 X_non_cat = sc.fit_transform(df[non_categorical])
 
 
-# In[33]:
+# In[32]:
 
 from numpy import hstack
 X = hstack((X_non_cat, X_cat))
@@ -238,13 +234,13 @@ y = df[outcome_var]
 X.shape, X_non_cat.shape, X_cat.shape
 
 
-# In[ ]:
+# In[33]:
 
 # dimension reduction then plot
-from sklearn import decomposition
+#from sklearn import decomposition
 
-pca = decomposition.PCA(n_components=2)
-X_prime = pca.fit_transform(X)
+#pca = decomposition.PCA(n_components=2)
+#X_prime = pca.fit_transform(X)
 
 
 # In[34]:
@@ -285,30 +281,99 @@ def plot_learning_curve(estimator, title, X, y, ylim=None, cv=None,
 
 # In[35]:
 
+from sklearn.metrics import confusion_matrix
+import itertools
+
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues,
+                          precision = 3):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    if normalize:
+        cm = np.around(cm.astype('float') / cm.sum(axis=1)[:, np.newaxis], precision)
+        #print("Normalized confusion matrix")
+    #else:
+        #print('Confusion matrix, without normalization')
+
+    #print(cm)
+
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, cm[i, j],
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+
+def plot_cm(model, X, y, normalize = False, precision = 3):
+    y_test = y
+    y_pred = model.fit(X,y).predict(X)
+    class_names = []
+
+    # Compute confusion matrix
+    cnf_matrix = confusion_matrix(y_test, y_pred)
+    np.set_printoptions(precision=precision)
+
+
+    # Plot normalized confusion matrix
+    plt.figure()
+    plot_confusion_matrix(cnf_matrix, classes=class_names, normalize=normalize,
+                          title='Confusion matrix', precision = precision)
+
+    plt.show()    
+
+
+# In[36]:
+
 from sklearn.model_selection import cross_val_score
 from sklearn.linear_model import LogisticRegression
 
 lr_model = LogisticRegression()
 scores = cross_val_score(lr_model, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.3%} +/-{:.2%} lr_model".format(scores.mean(), scores.std())
-
-
-# In[36]:
-
-from sklearn.ensemble import RandomForestClassifier
-
-rf_model = RandomForestClassifier(n_estimators=100, max_depth=6)
-#print rf_model.get_params()
-scores = cross_val_score(rf_model, X, y, cv=10, scoring='accuracy')
-print "Accuracy: {:.3%} +/-{:.2%} rf_model".format(scores.mean(), scores.std())
+plot_cm(lr_model, X,y)
 
 
 # In[37]:
 
-plot_learning_curve(rf_model, "rf_model", X, y, ylim=(0.7, 1.01), n_jobs=4)
+from sklearn.ensemble import ExtraTreesClassifier
+et = ExtraTreesClassifier(n_estimators = 100, max_depth=4)
+scores = cross_val_score(et, X, y, cv=10, scoring='accuracy')
+print "Accuracy: {:.3%} +/-{:.2%} rf_model".format(scores.mean(), scores.std())
+plot_cm(et, X,y)
 
 
 # In[38]:
+
+from sklearn.ensemble import RandomForestClassifier
+
+rf_model = RandomForestClassifier(n_estimators=300, max_features = 1, max_depth=6,random_state=42)
+print rf_model.get_params()
+scores = cross_val_score(rf_model, X, y, cv=10, scoring='accuracy')
+print "Accuracy: {:.3%} +/-{:.2%} rf_model".format(scores.mean(), scores.std())
+plot_cm(rf_model, X,y)
+
+
+# In[39]:
+
+plot_learning_curve(rf_model, "rf_model", X, y, ylim=(0.7, 1.01), n_jobs=4)
+
+
+# In[40]:
 
 from sklearn.neighbors import KNeighborsClassifier
 knn = KNeighborsClassifier()
@@ -316,20 +381,21 @@ scores = cross_val_score(knn, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.3%} +/-{:.2%} knn".format(scores.mean(), scores.std())
 
 
-# In[39]:
+# In[41]:
 
 from sklearn import svm
 svm_model = svm.SVC(kernel='rbf', random_state=0, gamma=0.10, C=1)
 scores = cross_val_score(svm_model, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.3%} +/-{:.2%} svm_model".format(scores.mean(), scores.std())
+plot_cm(svm_model, X,y)
 
 
-# In[40]:
+# In[42]:
 
 plot_learning_curve(svm_model, "svm_model", X, y, ylim=(0.7, 1.01), n_jobs=4)
 
 
-# In[41]:
+# In[43]:
 
 from sklearn.ensemble import AdaBoostClassifier
 
@@ -338,7 +404,7 @@ scores = cross_val_score(adaboost, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.2%} +/-{:.2%} adaboost".format(scores.mean(), scores.std())
 
 
-# In[42]:
+# In[44]:
 
 from sklearn.naive_bayes import GaussianNB
 
@@ -347,7 +413,7 @@ scores = cross_val_score(gnb, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.3%} +/-{:.2%} GaussianNB".format(scores.mean(), scores.std())
 
 
-# In[43]:
+# In[45]:
 
 import xgboost as xgb
 from xgboost.sklearn import XGBClassifier
@@ -370,7 +436,7 @@ scores = cross_val_score(xgb, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.3%} +/-{:.2%} xgb".format(scores.mean(), scores.std())
 
 
-# In[44]:
+# In[46]:
 
 from sklearn.model_selection import GridSearchCV
 
@@ -387,12 +453,12 @@ gsearch1.fit(X, y)
 gsearch1.best_params_, gsearch1.best_score_
 
 
-# In[76]:
+# In[47]:
 
 max_depth, min_child_weight = gsearch1.best_params_.values()
 
 
-# In[78]:
+# In[48]:
 
 param_test = {
     "subsample": (.6,.75,.9),
@@ -419,13 +485,13 @@ gsearch.fit(X, y)
 gsearch.best_params_, gsearch.best_score_
 
 
-# In[81]:
+# In[49]:
 
 colsample_bytree = gsearch.best_params_['colsample_bytree']
 subsample = gsearch.best_params_['subsample']
 
 
-# In[83]:
+# In[50]:
 
 param_test = {
     "gamma": (1e-5,.1, 0,10, 1e5),
@@ -451,7 +517,7 @@ gsearch.fit(X, y)
 gsearch.best_params_, gsearch.best_score_
 
 
-# In[84]:
+# In[51]:
 
 xgb2 = XGBClassifier(
  learning_rate =0.01,
@@ -471,12 +537,12 @@ scores = cross_val_score(xgb2, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.3%} +/-{:.2%} xgb".format(scores.mean(), scores.std())
 
 
-# In[85]:
+# In[52]:
 
 plot_learning_curve(xgb2, "xgboost", X, y, ylim=(0.7, 1.01), n_jobs=4)
 
 
-# In[49]:
+# In[53]:
 
 from sklearn.ensemble import VotingClassifier
 eclf = VotingClassifier(estimators=[('rf', rf_model), ('svm', svm_model),('xgb', xgb2)], voting='hard')
@@ -485,12 +551,12 @@ scores = cross_val_score(eclf, X, y, cv=10, scoring='accuracy')
 print "Accuracy: {:.3%} +/-{:.2%} eclf".format(scores.mean(), scores.std())
 
 
-# In[50]:
+# In[54]:
 
 plot_learning_curve(eclf, "ensemble", X, y, ylim=(0.7, 1.01), n_jobs=4)
 
 
-# In[51]:
+# In[55]:
 
 
 """
@@ -510,7 +576,7 @@ y = dnn.predict(x_test)
 """
 
 
-# In[52]:
+# In[56]:
 
 """ really slow
 from sklearn.ensemble import BaggingClassifier
@@ -522,115 +588,57 @@ print "Accuracy: {:.2%} +/-{:.2%} bagging".format(scores.mean(), scores.std())
 """
 
 
-# In[53]:
-
-
-from sklearn import cross_validation, metrics   #Additional scklearn functions
-
-from sklearn.cross_validation import train_test_split
-
-"""
-def modelfit(alg, X, y, useTrainCV=True, cv_folds=5, early_stopping_rounds=10):
-    if useTrainCV:
-        xgb_param = alg.get_xgb_params()
-        dtrain = xgb.DMatrix(X,label=y)
-        cvresult = xgb.cv(xgb_param,
-                          dtrain,
-                          num_boost_round=alg.get_params()['n_estimators'],
-                          nfold=cv_folds,
-                          metrics='error', # no accuracy
-                          callbacks=[xgb.callback.print_evaluation(show_stdv=False),
-                                     xgb.callback.early_stop(early_stopping_rounds)]
-                         )
-        
-        alg.set_params(n_estimators=cvresult.shape[0])
-    
-    #Fit the algorithm on the data
-    alg.fit(X, y,eval_metric='error')
-        
-    #Predict training set:
-    dtrain_predictions = alg.predict(X)
-    dtrain_predprob = alg.predict_proba(X)[:,1]
-        
-    #Print model report:
-    print "\nModel Report"
-    print "Accuracy : %.4g" % metrics.accuracy_score(y.values, dtrain_predictions)
-    #print "AUC Score (Train): %f" % metrics.roc_auc_score(y, dtrain_predprob)
-                    
-    feat_imp = pd.Series(alg.booster().get_fscore()).sort_values(ascending=False)
-    feat_imp.plot(kind='bar', title='Feature Importances')
-    plt.ylabel('Feature Importance Score')
-
-xgb1 = XGBClassifier(
- learning_rate =0.1,
- n_estimators=100,
- max_depth=5,
- min_child_weight=1,
- gamma=0,
- subsample=0.8,
- colsample_bytree=0.8,
- #reg_alpha = .01,
- #reg_lambda = .01,
- objective= 'binary:logistic',
- nthread=4,
- scale_pos_weight=1,
- seed=555)
-
-#modelfit(xgb1, X, y)
-"""
-
-
-# In[54]:
+# In[57]:
 
 # now work on test data
 test_df.apply(lambda x: x.isnull().sum())
 
 
-# In[55]:
+# In[58]:
 
 test_df.Age.fillna(test_df.Age.median(), inplace=True)
 
 
-# In[56]:
+# In[59]:
 
 test_df[test_df.Fare.isnull()]
 
 
-# In[57]:
+# In[60]:
 
 test_df.Embarked = test_df.Embarked.astype(str).map({"S":0,"C":1,"Q":2})
 
 
-# In[58]:
+# In[61]:
 
 mean_fare = test_df[test_df.Embarked==0]['Fare'].mean() ; mean_fare
 
 
-# In[59]:
+# In[62]:
 
 test_df.pivot_table(values='Fare',
                index=['Embarked'],
                aggfunc=np.mean).plot(kind='bar')
 
 
-# In[60]:
+# In[63]:
 
 test_df.Fare.fillna(mean_fare, inplace = True)
 
 
-# In[61]:
+# In[64]:
 
 test_df['FamilySize'] = test_df.SibSp + test_df.Parch
 
 
-# In[62]:
+# In[65]:
 
 test_df['Person'] = test_df[['Age','Sex']].apply(lambda x: 'child' if x[0]<adult_age else x[1], axis=1)
 # first convert to str, then map
 test_df.Person = test_df.Person.astype(str).map({'male':1,'female':0,'child':2})
 
 
-# In[63]:
+# In[66]:
 
 # additional features
 
@@ -640,19 +648,13 @@ test_df['perish_mother_wife'] = test_df['surname'].apply(lambda x: 1 if x in per
 test_df['survive_father_husband'] = test_df['surname'].apply(lambda x: 1 if x in survive_male_surnames else 0)
 
 
-# In[64]:
-
-test_df['Pclass1'] = test_df.Pclass==1
-test_df['Pclass2'] = test_df.Pclass==2
-
-
-# In[65]:
+# In[67]:
 
 test_df.drop(['Name','surname','Sex','Age','SibSp','Parch','Ticket','Cabin'], inplace=True, axis=1)
 test_df[:3]
 
 
-# In[66]:
+# In[68]:
 
 # encoding, standarize
 X_test_cat = ohe.transform(test_df[categorical])
@@ -660,16 +662,16 @@ X_test_non_cat = sc.transform(test_df[non_categorical])
 X_test = hstack((X_test_non_cat, X_test_cat))
 
 
-# In[86]:
+# In[69]:
 
-model = xgb2
+model = rf_model
 model.fit(X,y)
 Y_pred = model.predict(X_test)
 submission = pd.DataFrame({
         "PassengerId": test_df["PassengerId"],
         "Survived": Y_pred
     })
-submission.to_csv('./submissions/xgb6.csv', index=False)
+submission.to_csv('./submissions/rf10.csv', index=False)
 
 # Test Results:
 # model: score, description
